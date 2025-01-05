@@ -4,6 +4,11 @@
 #include "Application.h"
 #include <cassert>
 
+static inline bool RangeContaninsValue(int value, int start, int end)
+{
+    return(value >= start && value <= end);
+}
+
 LRESULT CALLBACK DefaultWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
     Vnm::Window* pWindow = reinterpret_cast<Vnm::Window*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
@@ -35,6 +40,28 @@ LRESULT CALLBACK DefaultWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
         if (pWindow != nullptr)
         {
             pWindow->OnKeyUp(static_cast<UINT8>(wparam));
+        }
+        break;
+    case WM_LBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+        if (pWindow != nullptr)
+        {
+            pWindow->OnMouseDown(message, lparam);
+        }
+        break;
+    case WM_LBUTTONUP:
+    case WM_MBUTTONUP:
+    case WM_RBUTTONUP:
+        if (pWindow != nullptr)
+        {
+            pWindow->OnMouseUp(message, lparam);
+        }
+        break;
+    case WM_MOUSEMOVE:
+        if (pWindow != nullptr)
+        {
+            pWindow->OnMouseMove(hwnd, lparam);
         }
         break;
     case WM_DESTROY:
@@ -81,6 +108,9 @@ namespace Vnm
         DWORD error = GetLastError();
 
         ShowWindow(mHandle, cmdShow);
+
+        mWidth = desc.mWidth;
+        mHeight = desc.mHeight;
     }
 
     void Window::OnKeyDown(UINT8 key)
@@ -101,8 +131,74 @@ namespace Vnm
         }
     }
 
+    void Window::OnMouseDown(UINT message, LPARAM lparam)
+    {
+        // Translate message
+        uint32_t buttonMask = 0;
+
+        switch (message)
+        {
+        case WM_LBUTTONDOWN:
+            buttonMask |= LeftMouseButtonBit;
+            break;
+        case WM_MBUTTONDOWN:
+            buttonMask |= MiddleMouseButtonBit;
+            break;
+        case WM_RBUTTONDOWN:
+            buttonMask |= RightMouseButtonBit;
+            break;
+        default:
+            assert(0);
+            break;
+        }
+
+        // Forward to application
+        mApplication->OnMouseDown(buttonMask);
+    }
+
+    void Window::OnMouseUp(UINT message, LPARAM lparam)
+    {
+        // Translate message
+        uint32_t buttonMask = 0;
+
+        switch (message)
+        {
+        case WM_LBUTTONUP:
+            buttonMask |= LeftMouseButtonBit;
+            break;
+        case WM_MBUTTONUP:
+            buttonMask |= MiddleMouseButtonBit;
+            break;
+        case WM_RBUTTONUP:
+            buttonMask |= RightMouseButtonBit;
+            break;
+        default:
+            assert(0);
+            break;
+        }
+
+        // Forward to application
+        mApplication->OnMouseUp(buttonMask);
+    }
+
+    void Window::OnMouseMove(HWND hwnd, LPARAM lparam)
+    {
+        SetCapture(hwnd);
+        int mouseX = LOWORD(lparam);
+        int mouseY = HIWORD(lparam);
+        if (!RangeContaninsValue(mouseX, 0, mWidth) || !RangeContaninsValue(mouseY, 0, mHeight))
+        {
+            mApplication->OnMouseUp(LeftMouseButtonBit | MiddleMouseButtonBit | RightMouseButtonBit);
+            ReleaseCapture();
+        }
+
+        // Forward to application
+        mApplication->OnMouseMove(mouseX, mouseY);
+    }
+
     void Window::Destroy()
     {
         DestroyWindow(mHandle);
     }
-}
+
+} // namespace Vnm

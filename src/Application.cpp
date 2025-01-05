@@ -6,11 +6,11 @@
 namespace Vnm
 {
     constexpr uint32_t MoveForwardBit = 1 << 0;
-    constexpr uint32_t MoveBackBit = 1 << 1;
-    constexpr uint32_t TurnLeftBit = 1 << 2;
-    constexpr uint32_t TurnRightBit = 1 << 3;
-    constexpr uint32_t TiltUpBit = 1 << 4;
-    constexpr uint32_t TiltDownBit = 1 << 5;
+    constexpr uint32_t MoveBackBit    = 1 << 1;
+    constexpr uint32_t TurnLeftBit    = 1 << 2;
+    constexpr uint32_t TurnRightBit   = 1 << 3;
+    constexpr uint32_t TiltUpBit      = 1 << 4;
+    constexpr uint32_t TiltDownBit    = 1 << 5;
 
     D3dContext gContext; // TODO: Unglobalize
 
@@ -45,6 +45,24 @@ namespace Vnm
         }
     }
 
+    static void HandleMouse(const MouseState& mouseState, Camera& camera)
+    {
+        static int prevMouseX = mouseState.mMouseX;
+        static int prevMouseY = mouseState.mMouseY;
+
+        if (mouseState.mLeftButtonDown)
+        {
+            const float rotationSpeedFactor = 0.001f;
+            float deltaY = ((float)mouseState.mMouseY - (float)prevMouseY) * rotationSpeedFactor;
+            float deltaX = ((float)mouseState.mMouseX - (float)prevMouseX) * rotationSpeedFactor;
+            camera.Pitch(deltaY);
+            camera.Yaw(deltaX);
+        }
+
+        prevMouseX = mouseState.mMouseX;
+        prevMouseY = mouseState.mMouseY;
+    }
+
     void Application::Startup(HINSTANCE instance, int cmdShow)
     {
         // Create main window and device
@@ -61,6 +79,7 @@ namespace Vnm
     void Application::Mainloop()
     {
         HandleMovement(mMoveState, mCamera);
+        HandleMouse(mMouseState, mCamera);
 
         static uint32_t lastTime = GetTickCount();
         uint32_t elapsedTime = GetTickCount() - lastTime;
@@ -81,9 +100,11 @@ namespace Vnm
         switch (key)
         {
         case VK_SPACE:
+        case 'W':
             mMoveState &= ~MoveForwardBit;
             break;
         case VK_SHIFT:
+        case 'S':
             mMoveState &= ~MoveBackBit;
             break;
         case VK_LEFT:
@@ -95,11 +116,9 @@ namespace Vnm
             mMoveState &= ~TurnRightBit;
             break;
         case VK_UP:
-        case 'W':
             mMoveState &= ~TiltDownBit;
             break;
         case VK_DOWN:
-        case 'S':
             mMoveState &= ~TiltUpBit;
             break;
         default: break;
@@ -113,9 +132,11 @@ namespace Vnm
         case VK_TAB:
             break;
         case VK_SPACE:
+        case 'W':
             mMoveState |= MoveForwardBit;
             break;
         case VK_SHIFT:
+        case 'S':
             mMoveState |= MoveBackBit;
             break;
         case VK_LEFT:
@@ -127,14 +148,55 @@ namespace Vnm
             mMoveState |= TurnRightBit;
             break;
         case VK_UP:
-        case 'W':
             mMoveState |= TiltDownBit;
             break;
         case VK_DOWN:
-        case 'S':
             mMoveState |= TiltUpBit;
             break;
         default: break;
         }
     }
-}
+
+    void Application::OnMouseDown(uint32_t buttonMask)
+    {
+        if (buttonMask & LeftMouseButtonBit)
+        {
+            mMouseState.mLeftButtonDown = true;
+        }
+
+        if (buttonMask & MiddleMouseButtonBit)
+        {
+            mMouseState.mMiddleButtonDown = true;
+        }
+
+        if (buttonMask & RightMouseButtonBit)
+        {
+            mMouseState.mRightButtonDown = true;
+        }
+    }
+
+    void Application::OnMouseUp(uint32_t buttonMask)
+    {
+        if (buttonMask & LeftMouseButtonBit)
+        {
+            mMouseState.mLeftButtonDown = false;
+        }
+
+        if (buttonMask & MiddleMouseButtonBit)
+        {
+            mMouseState.mMiddleButtonDown = false;
+        }
+
+        if (buttonMask & RightMouseButtonBit)
+        {
+            mMouseState.mRightButtonDown = false;
+        }
+    }
+
+    void Application::OnMouseMove(int x, int y)
+    {
+        mMouseState.mMouseX = x;
+        mMouseState.mMouseY = y;
+    }
+
+} // namesoace Vnm

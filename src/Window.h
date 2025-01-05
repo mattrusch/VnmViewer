@@ -34,11 +34,16 @@ namespace Vnm
         void Destroy();
         void OnKeyDown(UINT8 key);
         void OnKeyUp(UINT8 key);
+        void OnMouseDown(UINT message, LPARAM lparam);
+        void OnMouseUp(UINT message, LPARAM lparam);
+        void OnMouseMove(HWND hwnd, LPARAM lparam);
 
         HWND GetHandle() const { return mHandle; }
 
     private:
         Application* mApplication;  // For messaging
         HWND         mHandle;
+        int          mWidth = 0;
+        int          mHeight = 0;
     };
 }
