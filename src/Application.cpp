@@ -11,6 +11,8 @@ namespace Vnm
     constexpr uint32_t TurnRightBit   = 1 << 3;
     constexpr uint32_t TiltUpBit      = 1 << 4;
     constexpr uint32_t TiltDownBit    = 1 << 5;
+    constexpr uint32_t StrafeLeftBit  = 1 << 6;
+    constexpr uint32_t StrafeRightBit = 1 << 7;
 
     D3dContext gContext; // TODO: Unglobalize
 
@@ -42,6 +44,14 @@ namespace Vnm
         if (key & TiltUpBit)
         {
             camera.Pitch(-DirectX::XM_PI * rotationScale);
+        }
+        if (key & StrafeLeftBit)
+        {
+            camera.MoveRight(-forwardScale);
+        }
+        if (key & StrafeRightBit)
+        {
+            camera.MoveRight(forwardScale);
         }
     }
 
@@ -108,12 +118,16 @@ namespace Vnm
             mMoveState &= ~MoveBackBit;
             break;
         case VK_LEFT:
-        case 'A':
             mMoveState &= ~TurnLeftBit;
             break;
+        case 'A':
+            mMoveState &= ~StrafeLeftBit;
+            break;
         case VK_RIGHT:
-        case 'D':
             mMoveState &= ~TurnRightBit;
+            break;
+        case 'D':
+            mMoveState &= ~StrafeRightBit;
             break;
         case VK_UP:
             mMoveState &= ~TiltDownBit;
@@ -140,12 +154,16 @@ namespace Vnm
             mMoveState |= MoveBackBit;
             break;
         case VK_LEFT:
-        case 'A':
             mMoveState |= TurnLeftBit;
             break;
+        case 'A':
+            mMoveState |= StrafeLeftBit;
+            break;
         case VK_RIGHT:
-        case 'D':
             mMoveState |= TurnRightBit;
+            break;
+        case 'D':
+            mMoveState |= StrafeRightBit;
             break;
         case VK_UP:
             mMoveState |= TiltDownBit;

@@ -49,6 +49,14 @@ namespace Vnm
         mPosition = DirectX::XMVectorAdd(mPosition, scaledForward);
     }
 
+    // Moves camera in direction of right vector
+    void Camera::MoveRight(float delta)
+    {
+        DirectX::XMVECTOR scale = DirectX::XMVectorSet(delta, delta, delta, 0.0f);
+        DirectX::XMVECTOR scaledForward = DirectX::XMVectorMultiply(mRight, scale);
+        mPosition = DirectX::XMVectorAdd(mPosition, scaledForward);
+    }
+
     // Recalculates forward and up based on current position and lookAtPos and right arguments
     void Camera::SetLookAtRecalcBasis(const DirectX::XMVECTOR& lookAtPos, const DirectX::XMVECTOR& right)
     {
