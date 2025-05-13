@@ -12,12 +12,14 @@
 #include <wrl.h>
 #include "d3dx12.h"
 
+// TODO: Move this out of context
 class SceneConstantBuffer
 {
 public:
     DirectX::XMMATRIX mWorldViewProj;
 };
 
+// TODO: Move this out of context
 class D3dMesh
 {
 public:
@@ -38,7 +40,8 @@ public:
     void Destroy();
 
     static const UINT   kFrameCount = 2;
-    static const size_t kConstBufferSize = 1024 * 64;
+    static const size_t kConstBufferSize = 1024 * 256;
+    static const size_t kTreePosCount = 1024;
 
     Microsoft::WRL::ComPtr<IDXGISwapChain3>           mSwapChain;
     Microsoft::WRL::ComPtr<ID3D12Device>              mDevice;
@@ -68,9 +71,13 @@ public:
     Microsoft::WRL::ComPtr<ID3D12Resource>            mDepthStencil;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>      mDsvHeap;
 
+    // TODO: Move this out of context
     static const size_t                               kMaxMeshes = 100;
-    size_t                                            mNumMeshes;
-    D3dMesh                                           mMesh[kMaxMeshes];
+    size_t                                            mNumTerrainMeshes;
+    D3dMesh                                           mTerrainMesh[kMaxMeshes];
+    size_t                                            mNumTreeMeshes;
+    D3dMesh                                           mTreeMesh[kMaxMeshes];
+    DirectX::XMVECTOR                                 mTreePosArray[kTreePosCount];
 
 private:
     void InitDevice(HWND hwnd);

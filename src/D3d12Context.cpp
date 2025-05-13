@@ -362,7 +362,7 @@ static void LoadGltf(const char* filename, GltfModel* dstModel)
         auto& indexAccessor = model.accessors[indexAccessorIndex];
         size_t indexOffset = indexAccessor.byteOffset;
 
-        assert(indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
+        //assert(indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
         assert(indexAccessor.type == TINYGLTF_TYPE_SCALAR);
 
         auto& indexBufferView = model.bufferViews[indexAccessor.bufferView];
@@ -379,6 +379,82 @@ static void LoadGltf(const char* filename, GltfModel* dstModel)
         curMesh.numIndices = gltfIndicesCount;
         curMesh.indicesSize = gltfIndicesSize;
         curMesh.indices = gltfIndices;
+    }
+}
+
+void InitMeshesFromGltf(const GltfModel& gltfInstancedModel, D3dContext& context, D3dMesh* destMeshes, size_t maxDestMeshCount)
+{
+    size_t numMeshes = gltfInstancedModel.meshes.size();
+    assert(numMeshes <= maxDestMeshCount);
+
+    for (size_t iMesh = 0; iMesh < numMeshes; ++iMesh)
+    {
+        // Create vertex buffer
+        const uint8_t* triangleVerts = gltfInstancedModel.meshes[iMesh].vertices;
+        const size_t vertexBufferSize = gltfInstancedModel.meshes[iMesh].verticesSize;
+
+        CD3DX12_HEAP_PROPERTIES heapProperties(D3D12_HEAP_TYPE_UPLOAD);
+        CD3DX12_RESOURCE_DESC buffer = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize);
+        D3D_CHECK(context.mDevice->CreateCommittedResource(
+            &heapProperties,
+            D3D12_HEAP_FLAG_NONE,
+            &buffer,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&destMeshes[iMesh].mVertexBuffer)));
+
+        // Copy triangle data to vertex buffer
+        UINT8* pVertexData;
+        CD3DX12_RANGE readRangeVb(0, 0);
+        D3D_CHECK(destMeshes[iMesh].mVertexBuffer->Map(0, &readRangeVb, reinterpret_cast<void**>(&pVertexData)));
+        memcpy(pVertexData, triangleVerts, vertexBufferSize);
+        destMeshes[iMesh].mVertexBuffer->Unmap(0, nullptr);
+
+        // Initialize VB view
+        destMeshes[iMesh].mVertexBufferView.BufferLocation = destMeshes[iMesh].mVertexBuffer->GetGPUVirtualAddress();
+        destMeshes[iMesh].mVertexBufferView.StrideInBytes = static_cast<UINT>(gltfInstancedModel.meshes[iMesh].vertexStride);
+        destMeshes[iMesh].mVertexBufferView.SizeInBytes = static_cast<UINT>(vertexBufferSize);
+
+        // Create index buffer
+        const uint8_t* indices = gltfInstancedModel.meshes[iMesh].indices;
+        const size_t indexBufferSize = gltfInstancedModel.meshes[iMesh].indicesSize;
+
+        CD3DX12_HEAP_PROPERTIES ibHeapProperties(D3D12_HEAP_TYPE_UPLOAD);
+        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize);
+        D3D_CHECK(context.mDevice->CreateCommittedResource(
+            &ibHeapProperties,
+            D3D12_HEAP_FLAG_NONE,
+            &resourceDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&destMeshes[iMesh].mIndexBuffer)));
+
+        // Copy data into index buffer
+        UINT8* pIndexData;
+        CD3DX12_RANGE readRangeIb(0, 0);
+        D3D_CHECK(destMeshes[iMesh].mIndexBuffer->Map(0, &readRangeIb, reinterpret_cast<void**>(&pIndexData)));
+        memcpy(pIndexData, indices, indexBufferSize);
+        destMeshes[iMesh].mIndexBuffer->Unmap(0, nullptr);
+
+        // Initialize IB view
+        destMeshes[iMesh].mIndexBufferView.BufferLocation = destMeshes[iMesh].mIndexBuffer->GetGPUVirtualAddress();
+        destMeshes[iMesh].mIndexBufferView.SizeInBytes = static_cast<UINT>(indexBufferSize);
+        destMeshes[iMesh].mNumIndices = gltfInstancedModel.meshes[iMesh].numIndices;
+
+        size_t indexSize = gltfInstancedModel.meshes[iMesh].indicesSize / gltfInstancedModel.meshes[iMesh].numIndices;
+        switch (indexSize)
+        {
+        case 2:
+            destMeshes[iMesh].mIndexBufferView.Format = DXGI_FORMAT_R16_UINT;
+            break;
+        case 4:
+            destMeshes[iMesh].mIndexBufferView.Format = DXGI_FORMAT_R32_UINT;
+            break;
+        default:
+            destMeshes[iMesh].mIndexBufferView.Format = DXGI_FORMAT_R32_UINT;
+            assert(0);
+            break;
+        }
     }
 }
 
@@ -441,7 +517,7 @@ static void InitAssets(D3dContext& context)
     psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
     psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
     psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
     psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     psoDesc.SampleMask = UINT_MAX;
@@ -456,68 +532,30 @@ static void InitAssets(D3dContext& context)
     D3D_CHECK(context.mDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, context.mCommandAllocator.Get(), context.mPipelineState.Get(), IID_PPV_ARGS(&context.mCommandList)));
 
     // Load geometry
-    GltfModel gltfInstancedModel;
-    //LoadGltf("simple_sapling.glb", &gltfInstancedModel);
-    LoadGltf("sapling_with_texcoords_and_leaves.glb", &gltfInstancedModel);
-    assert(gltfInstancedModel.meshes.size() < D3dContext::kMaxMeshes && "Increase D3dContext::kMaxMeshes");
-    context.mNumMeshes = gltfInstancedModel.meshes.size();
+    constexpr uint32_t numGltfModels = 2;
+    constexpr uint32_t terrainModelIndex = 0;
+    constexpr uint32_t treeModelIndex = 1;
+    GltfModel gltfInstancedModel[numGltfModels];
 
-    size_t numMeshes = gltfInstancedModel.meshes.size();
-    for (size_t i = 0; i < numMeshes; ++i)
+    LoadGltf("terrain.glb", &gltfInstancedModel[terrainModelIndex]);
+    assert(gltfInstancedModel[terrainModelIndex].meshes.size() < D3dContext::kMaxMeshes && "Increase D3dContext::kMaxMeshes");
+    context.mNumTerrainMeshes = gltfInstancedModel[terrainModelIndex].meshes.size();
+    InitMeshesFromGltf(gltfInstancedModel[terrainModelIndex], context, context.mTerrainMesh, context.kMaxMeshes);
+
+    // Extract tree positions
+    srand(time(NULL));
+    for (int i = 0; i < D3dContext::kTreePosCount; ++i)
     {
-        // Create vertex buffer
-        const uint8_t* triangleVerts = gltfInstancedModel.meshes[i].vertices;
-        const size_t vertexBufferSize = gltfInstancedModel.meshes[i].verticesSize;
-
-        CD3DX12_HEAP_PROPERTIES heapProperties(D3D12_HEAP_TYPE_UPLOAD);
-        CD3DX12_RESOURCE_DESC buffer = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize);
-        D3D_CHECK(context.mDevice->CreateCommittedResource(
-            &heapProperties,
-            D3D12_HEAP_FLAG_NONE,
-            &buffer,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&context.mMesh[i].mVertexBuffer)));
-
-        // Copy triangle data to vertex buffer
-        UINT8* pVertexData;
-        CD3DX12_RANGE readRangeVb(0, 0);
-        D3D_CHECK(context.mMesh[i].mVertexBuffer->Map(0, &readRangeVb, reinterpret_cast<void**>(&pVertexData)));
-        memcpy(pVertexData, triangleVerts, vertexBufferSize);
-        context.mMesh[i].mVertexBuffer->Unmap(0, nullptr);
-
-        // Initialize VB view
-        context.mMesh[i].mVertexBufferView.BufferLocation = context.mMesh[i].mVertexBuffer->GetGPUVirtualAddress();
-        context.mMesh[i].mVertexBufferView.StrideInBytes = static_cast<UINT>(gltfInstancedModel.meshes[i].vertexStride);
-        context.mMesh[i].mVertexBufferView.SizeInBytes = static_cast<UINT>(vertexBufferSize);
-
-        // Create index buffer
-        const uint8_t* indices = gltfInstancedModel.meshes[i].indices;
-        const size_t indexBufferSize = gltfInstancedModel.meshes[i].indicesSize;
-
-        CD3DX12_HEAP_PROPERTIES ibHeapProperties(D3D12_HEAP_TYPE_UPLOAD);
-        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize);
-        D3D_CHECK(context.mDevice->CreateCommittedResource(
-            &ibHeapProperties,
-            D3D12_HEAP_FLAG_NONE,
-            &resourceDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&context.mMesh[i].mIndexBuffer)));
-
-        // Copy data into index buffer
-        UINT8* pIndexData;
-        CD3DX12_RANGE readRangeIb(0, 0);
-        D3D_CHECK(context.mMesh[i].mIndexBuffer->Map(0, &readRangeIb, reinterpret_cast<void**>(&pIndexData)));
-        memcpy(pIndexData, indices, indexBufferSize);
-        context.mMesh[i].mIndexBuffer->Unmap(0, nullptr);
-
-        // Initialize IB view
-        context.mMesh[i].mIndexBufferView.BufferLocation = context.mMesh[i].mIndexBuffer->GetGPUVirtualAddress();
-        context.mMesh[i].mIndexBufferView.SizeInBytes = static_cast<UINT>(indexBufferSize);
-        context.mMesh[i].mIndexBufferView.Format = DXGI_FORMAT_R16_UINT;
-        context.mMesh[i].mNumIndices = gltfInstancedModel.meshes[i].numIndices;
+        int index = ((float)rand() / (float)RAND_MAX) * (float)gltfInstancedModel[terrainModelIndex].meshes[0].numVertices;// context.kTreePosCount;
+        size_t vertexStride = gltfInstancedModel[terrainModelIndex].meshes[0].vertexStride;
+        const float* position = (const float*)(gltfInstancedModel[terrainModelIndex].meshes[0].vertices + index * vertexStride);
+        context.mTreePosArray[i] = DirectX::XMVectorSet(position[0], position[1], position[2], 1.0f);
     }
+
+    LoadGltf("sapling_with_texcoords_and_leaves.glb", &gltfInstancedModel[treeModelIndex]);
+    assert(gltfInstancedModel[treeModelIndex].meshes.size() < D3dContext::kMaxMeshes && "Increase D3dContext::kMaxMeshes");
+    context.mNumTreeMeshes = gltfInstancedModel[treeModelIndex].meshes.size();
+    InitMeshesFromGltf(gltfInstancedModel[treeModelIndex], context, context.mTreeMesh, context.kMaxMeshes);
 
     // Create the constant buffer
     CD3DX12_HEAP_PROPERTIES cbHeapProperties(D3D12_HEAP_TYPE_UPLOAD);
@@ -617,19 +655,17 @@ void D3dContext::Update(const DirectX::XMMATRIX& lookAt, float elapsedSeconds)
     DirectX::XMMATRIX matLookAt = lookAt;
     DirectX::XMMATRIX matPerspective = DirectX::XMMatrixPerspectiveFovLH(1.0f, static_cast<float>(gWidth) / static_cast<float>(gHeight), 0.1f, 100.0f);
 
-    // CB for first instance
+    // CB for terrain
     DirectX::XMMATRIX worldViewProj = matRotation * matLookAt * matPerspective;
     memcpy(mpCbvDataBegin, &worldViewProj, sizeof(worldViewProj));
 
-    // CB for second instance
-    size_t offset = ALIGN_256(sizeof(worldViewProj));
-    worldViewProj = matRotation * DirectX::XMMatrixTranslation(4.0f, 0.0f, 0.0f) * matLookAt * matPerspective;
-    memcpy(mpCbvDataBegin + offset, &worldViewProj, sizeof(worldViewProj));
-
-    // CB for third instance
-    offset += ALIGN_256(sizeof(worldViewProj));
-    worldViewProj = matRotation * DirectX::XMMatrixTranslation(-4.0f, 0.0f, 0.0f) * matLookAt * matPerspective;
-    memcpy(mpCbvDataBegin + offset, &worldViewProj, sizeof(worldViewProj));
+    // CBs for Tree instances
+    for (int i = 1; i < kTreePosCount; ++i)
+    {
+        size_t offset = i * ALIGN_256(sizeof(worldViewProj));
+        worldViewProj = DirectX::XMMatrixScaling(0.1f, 0.1f, 0.1f) * matRotation * DirectX::XMMatrixTranslationFromVector(mTreePosArray[i]) * matLookAt * matPerspective;
+        memcpy(mpCbvDataBegin + offset, &worldViewProj, sizeof(worldViewProj));
+    }
 }
 
 static void PopulateCommandList(D3dContext& context)
@@ -670,22 +706,27 @@ static void PopulateCommandList(D3dContext& context)
     context.mCommandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
     context.mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    for (size_t i = 0; i < context.mNumMeshes; ++i)
+    for (size_t i = 0; i < context.mNumTerrainMeshes; ++i)
     {
-        context.mCommandList->IASetVertexBuffers(0, 1, &context.mMesh[i].mVertexBufferView);
-        context.mCommandList->IASetIndexBuffer(&context.mMesh[i].mIndexBufferView);
+        context.mCommandList->IASetVertexBuffers(0, 1, &context.mTerrainMesh[i].mVertexBufferView);
+        context.mCommandList->IASetIndexBuffer(&context.mTerrainMesh[i].mIndexBufferView);
 
         // Set root command buffer view for first instance
         context.mCommandList->SetGraphicsRootConstantBufferView(1, context.mConstantBuffer->GetGPUVirtualAddress());
-        context.mCommandList->DrawIndexedInstanced(context.mMesh[i].mNumIndices / 3, 1, 0, 0, 0);
+        context.mCommandList->DrawIndexedInstanced(context.mTerrainMesh[i].mNumIndices, 1, 0, 0, 0);
+    }
 
-        // Second instance
-        context.mCommandList->SetGraphicsRootConstantBufferView(1, context.mConstantBuffer->GetGPUVirtualAddress() + ALIGN_256(sizeof(SceneConstantBuffer)));
-        context.mCommandList->DrawIndexedInstanced(context.mMesh[i].mNumIndices / 3, 1, 0, 0, 0);
+    for (size_t i = 0; i < context.mNumTreeMeshes; ++i)
+    {
+        context.mCommandList->IASetVertexBuffers(0, 1, &context.mTreeMesh[i].mVertexBufferView);
+        context.mCommandList->IASetIndexBuffer(&context.mTreeMesh[i].mIndexBufferView);
 
-        // Third instance
-        context.mCommandList->SetGraphicsRootConstantBufferView(1, context.mConstantBuffer->GetGPUVirtualAddress() + ALIGN_256(sizeof(SceneConstantBuffer)) * 2);
-        context.mCommandList->DrawIndexedInstanced(context.mMesh[i].mNumIndices / 3, 1, 0, 0, 0);
+        for (int iInstance = 1; iInstance < context.kTreePosCount; ++iInstance)
+        {
+            // Set root command buffer view for first instance
+            context.mCommandList->SetGraphicsRootConstantBufferView(1, context.mConstantBuffer->GetGPUVirtualAddress() + ALIGN_256(sizeof(SceneConstantBuffer)) * iInstance);
+            context.mCommandList->DrawIndexedInstanced(context.mTreeMesh[i].mNumIndices, 1, 0, 0, 0);
+        }
     }
 
     CD3DX12_RESOURCE_BARRIER presentResourceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(context.mRenderTargets[context.mFrameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
