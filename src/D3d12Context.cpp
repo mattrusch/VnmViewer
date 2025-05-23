@@ -30,6 +30,11 @@ constexpr uint32_t gTexHeight = 64;
 constexpr uint32_t gTexBpp = 4;
 char gTexData[gTexWidth][gTexHeight][gTexBpp];
 
+// TODO: Move these
+float scales[D3dContext::kTreePosCount];
+float rotations[D3dContext::kTreePosCount];
+
+
 void InitAssets(D3dContext& context);
 void InitTexture(char* dst, uint32_t width, uint32_t height, uint32_t bpp);
 
@@ -299,86 +304,91 @@ static void LoadGltf(const char* filename, GltfModel* dstModel)
     for (size_t i = 0; i < numMeshes; ++i)
     {
         auto& mesh = model.meshes[i];
-        auto& primitive = mesh.primitives[0];
 
-        int posAccessorIndex = -1;
-        int normalAccessorIndex = -1;
-        int tangentAccessorIndex = -1;
-        int texcoordAccessorIndex = -1;
-        for (const auto& attribute : primitive.attributes)
+        size_t numPrimitives = mesh.primitives.size();
+        for (size_t iPrimitive = 0; iPrimitive < numPrimitives; ++iPrimitive)
         {
-            if (attribute.first == "POSITION")
+            auto& primitive = mesh.primitives[iPrimitive];
+
+            int posAccessorIndex = -1;
+            int normalAccessorIndex = -1;
+            int tangentAccessorIndex = -1;
+            int texcoordAccessorIndex = -1;
+            for (const auto& attribute : primitive.attributes)
             {
-                posAccessorIndex = attribute.second;
+                if (attribute.first == "POSITION")
+                {
+                    posAccessorIndex = attribute.second;
+                }
+                else if (attribute.first == "NORMAL")
+                {
+                    normalAccessorIndex = attribute.second;
+                }
+                else if (attribute.first == "TANGENT")
+                {
+                    tangentAccessorIndex = attribute.second;
+                }
+                else if (attribute.first == "TEXCOORD_0")
+                {
+                    texcoordAccessorIndex = attribute.second;
+                }
             }
-            else if (attribute.first == "NORMAL")
-            {
-                normalAccessorIndex = attribute.second;
-            }
-            else if (attribute.first == "TANGENT")
-            {
-                tangentAccessorIndex = attribute.second;
-            }
-            else if (attribute.first == "TEXCOORD_0")
-            {
-                texcoordAccessorIndex = attribute.second;
-            }
+
+            assert(posAccessorIndex > -1);
+            auto& posAccessor = model.accessors[posAccessorIndex];
+            size_t vertexOffset = posAccessor.byteOffset;
+            auto& posBufferView = model.bufferViews[posAccessor.bufferView];
+            uint8_t* gltfVertices = model.buffers[posBufferView.buffer].data.data() + vertexOffset + posBufferView.byteOffset;
+
+            assert(normalAccessorIndex > -1);
+            auto& normalAccessor = model.accessors[normalAccessorIndex];
+            size_t vertexNormalOffset = normalAccessor.byteOffset;
+            auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
+            uint8_t* gltfNormals = model.buffers[normalBufferView.buffer].data.data() + vertexNormalOffset + normalBufferView.byteOffset;
+
+            assert(tangentAccessorIndex > -1);
+            auto& tangentAccessor = model.accessors[tangentAccessorIndex];
+            size_t vertexTangentOffset = tangentAccessor.byteOffset;
+            auto& tangentBufferView = model.bufferViews[tangentAccessor.bufferView];
+            uint8_t* gltfTangents = model.buffers[tangentBufferView.buffer].data.data() + vertexTangentOffset + tangentBufferView.byteOffset;
+
+            assert(texcoordAccessorIndex > -1);
+            auto& texcoordAccessor = model.accessors[texcoordAccessorIndex];
+            size_t vertexTexcoordOffset = texcoordAccessor.byteOffset;
+            auto& texcoordBufferView = model.bufferViews[texcoordAccessor.bufferView];
+            uint8_t* gltfTexcoords = model.buffers[texcoordBufferView.buffer].data.data() + vertexTexcoordOffset + texcoordBufferView.byteOffset;
+
+            uint8_t* streams[] = { gltfVertices, gltfNormals, gltfTangents, gltfTexcoords };
+            const size_t attribByteSize = sizeof(float) * 3;
+            const size_t texcoordAttribByteSize = sizeof(float) * 3;
+            size_t attribByteSizes[] = { attribByteSize, attribByteSize, attribByteSize, texcoordAttribByteSize };
+
+            size_t gltfVertexStride = 0;
+            InterleaveArrays(4, streams, attribByteSizes, posAccessor.count, gltfVertices, &gltfVertexStride);
+            size_t gltfVerticesSize = posAccessor.count * gltfVertexStride;
+
+            auto& indexAccessorIndex = primitive.indices;
+            auto& indexAccessor = model.accessors[indexAccessorIndex];
+            size_t indexOffset = indexAccessor.byteOffset;
+
+            //assert(indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
+            assert(indexAccessor.type == TINYGLTF_TYPE_SCALAR);
+
+            auto& indexBufferView = model.bufferViews[indexAccessor.bufferView];
+            uint8_t* gltfIndices = model.buffers[indexBufferView.buffer].data.data() + indexOffset + indexBufferView.byteOffset;
+            size_t gltfIndicesSize = indexBufferView.byteLength;
+            size_t gltfIndicesCount = indexAccessor.count;
+
+            dstModel->meshes.emplace_back();
+            auto& curMesh = dstModel->meshes.back();
+            curMesh.numVertices = posAccessor.count;
+            curMesh.vertexStride = gltfVertexStride;
+            curMesh.verticesSize = gltfVerticesSize;
+            curMesh.vertices = gltfVertices;
+            curMesh.numIndices = gltfIndicesCount;
+            curMesh.indicesSize = gltfIndicesSize;
+            curMesh.indices = gltfIndices;
         }
-
-        assert(posAccessorIndex > -1);
-        auto& posAccessor = model.accessors[posAccessorIndex];
-        size_t vertexOffset = posAccessor.byteOffset;
-        auto& posBufferView = model.bufferViews[posAccessor.bufferView];
-        uint8_t* gltfVertices = model.buffers[posBufferView.buffer].data.data() + vertexOffset + posBufferView.byteOffset;
-
-        assert(normalAccessorIndex > -1);
-        auto& normalAccessor = model.accessors[normalAccessorIndex];
-        size_t vertexNormalOffset = normalAccessor.byteOffset;
-        auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
-        uint8_t* gltfNormals = model.buffers[normalBufferView.buffer].data.data() + vertexNormalOffset + normalBufferView.byteOffset;
-
-        assert(tangentAccessorIndex > -1);
-        auto& tangentAccessor = model.accessors[tangentAccessorIndex];
-        size_t vertexTangentOffset = tangentAccessor.byteOffset;
-        auto& tangentBufferView = model.bufferViews[tangentAccessor.bufferView];
-        uint8_t* gltfTangents = model.buffers[tangentBufferView.buffer].data.data() + vertexTangentOffset + tangentBufferView.byteOffset;
-
-        assert(texcoordAccessorIndex > -1);
-        auto& texcoordAccessor = model.accessors[texcoordAccessorIndex];
-        size_t vertexTexcoordOffset = texcoordAccessor.byteOffset;
-        auto& texcoordBufferView = model.bufferViews[texcoordAccessor.bufferView];
-        uint8_t* gltfTexcoords = model.buffers[texcoordBufferView.buffer].data.data() + vertexTexcoordOffset + texcoordBufferView.byteOffset;
-
-        uint8_t* streams[] = { gltfVertices, gltfNormals, gltfTangents, gltfTexcoords };
-        const size_t attribByteSize = sizeof(float) * 3;
-        const size_t texcoordAttribByteSize = sizeof(float) * 3;
-        size_t attribByteSizes[] = { attribByteSize, attribByteSize, attribByteSize, texcoordAttribByteSize };
-
-        size_t gltfVertexStride = 0;
-        InterleaveArrays(4, streams, attribByteSizes, posAccessor.count, gltfVertices, &gltfVertexStride);
-        size_t gltfVerticesSize = posAccessor.count * gltfVertexStride;
-
-        auto& indexAccessorIndex = primitive.indices;
-        auto& indexAccessor = model.accessors[indexAccessorIndex];
-        size_t indexOffset = indexAccessor.byteOffset;
-
-        //assert(indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
-        assert(indexAccessor.type == TINYGLTF_TYPE_SCALAR);
-
-        auto& indexBufferView = model.bufferViews[indexAccessor.bufferView];
-        uint8_t* gltfIndices = model.buffers[indexBufferView.buffer].data.data() + indexOffset + indexBufferView.byteOffset;
-        size_t gltfIndicesSize = indexBufferView.byteLength;
-        size_t gltfIndicesCount = indexAccessor.count;
-
-        dstModel->meshes.emplace_back();
-        auto& curMesh = dstModel->meshes.back();
-        curMesh.numVertices = posAccessor.count;
-        curMesh.vertexStride = gltfVertexStride;
-        curMesh.verticesSize = gltfVerticesSize;
-        curMesh.vertices = gltfVertices;
-        curMesh.numIndices = gltfIndicesCount;
-        curMesh.indicesSize = gltfIndicesSize;
-        curMesh.indices = gltfIndices;
     }
 }
 
@@ -542,6 +552,7 @@ static void InitAssets(D3dContext& context)
     context.mNumTerrainMeshes = gltfInstancedModel[terrainModelIndex].meshes.size();
     InitMeshesFromGltf(gltfInstancedModel[terrainModelIndex], context, context.mTerrainMesh, context.kMaxMeshes);
 
+    // TODO: Make better
     // Extract tree positions
     srand(time(NULL));
     for (int i = 0; i < D3dContext::kTreePosCount; ++i)
@@ -552,7 +563,16 @@ static void InitAssets(D3dContext& context)
         context.mTreePosArray[i] = DirectX::XMVectorSet(position[0], position[1], position[2], 1.0f);
     }
 
-    LoadGltf("sapling_with_texcoords_and_leaves.glb", &gltfInstancedModel[treeModelIndex]);
+    // TODO: Make better
+    // Fill in random scale and rotation arrays
+    for (int i = 0; i < D3dContext::kTreePosCount; ++i)
+    {
+        scales[i] = (float)rand() / (float)RAND_MAX;
+        rotations[i]  = (float)rand() / (float)RAND_MAX;
+    }
+
+    //LoadGltf("sapling_with_texcoords_and_leaves.glb", &gltfInstancedModel[treeModelIndex]);
+    LoadGltf("white_oak.glb", &gltfInstancedModel[treeModelIndex]);
     assert(gltfInstancedModel[treeModelIndex].meshes.size() < D3dContext::kMaxMeshes && "Increase D3dContext::kMaxMeshes");
     context.mNumTreeMeshes = gltfInstancedModel[treeModelIndex].meshes.size();
     InitMeshesFromGltf(gltfInstancedModel[treeModelIndex], context, context.mTreeMesh, context.kMaxMeshes);
@@ -663,7 +683,10 @@ void D3dContext::Update(const DirectX::XMMATRIX& lookAt, float elapsedSeconds)
     for (int i = 1; i < kTreePosCount; ++i)
     {
         size_t offset = i * ALIGN_256(sizeof(worldViewProj));
-        worldViewProj = DirectX::XMMatrixScaling(0.1f, 0.1f, 0.1f) * matRotation * DirectX::XMMatrixTranslationFromVector(mTreePosArray[i]) * matLookAt * matPerspective;
+        float scaleFactor = scales[i] + 1.0;
+        float scale = 0.0015f * scaleFactor;
+        float rotation = 0.0f;// rotations[i] * DirectX::XM_2PI;
+        worldViewProj = DirectX::XMMatrixRotationY(rotation) * DirectX::XMMatrixScaling(scale , scale, scale) * matRotation * DirectX::XMMatrixTranslationFromVector(mTreePosArray[i]) * matLookAt * matPerspective;
         memcpy(mpCbvDataBegin + offset, &worldViewProj, sizeof(worldViewProj));
     }
 }
