@@ -40,8 +40,8 @@ public:
     void Destroy();
 
     static const UINT   kFrameCount = 2;
-    static const size_t kConstBufferSize = 1024 * 256;
-    static const size_t kTreePosCount = 1024;
+    static const size_t kConstBufferSize = 4096 * 256;
+    static const size_t kTreePosCount = 2048;
 
     Microsoft::WRL::ComPtr<IDXGISwapChain3>           mSwapChain;
     Microsoft::WRL::ComPtr<ID3D12Device>              mDevice;
@@ -77,6 +77,8 @@ public:
     D3dMesh                                           mTerrainMesh[kMaxMeshes];
     size_t                                            mNumTreeMeshes;
     D3dMesh                                           mTreeMesh[kMaxMeshes];
+    size_t                                            mNumConiferMeshes;
+    D3dMesh                                           mConiferMesh[kMaxMeshes];
     DirectX::XMVECTOR                                 mTreePosArray[kTreePosCount];
 
 private:

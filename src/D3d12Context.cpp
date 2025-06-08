@@ -542,9 +542,21 @@ static void InitAssets(D3dContext& context)
     D3D_CHECK(context.mDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, context.mCommandAllocator.Get(), context.mPipelineState.Get(), IID_PPV_ARGS(&context.mCommandList)));
 
     // Load geometry
-    constexpr uint32_t numGltfModels = 2;
-    constexpr uint32_t terrainModelIndex = 0;
-    constexpr uint32_t treeModelIndex = 1;
+    // 
+    // TODO: Kill constexprs
+    //constexpr uint32_t numGltfModels = 2;
+    //constexpr uint32_t terrainModelIndex = 0;
+    //constexpr uint32_t treeModelIndex = 1;
+    //constexpr uint32_t coniferModelIndex = 2;
+
+    enum GltfModelIds        
+    {
+        terrainModelIndex,
+        treeModelIndex,
+        coniferModelIndex,
+        numGltfModels
+    };
+
     GltfModel gltfInstancedModel[numGltfModels];
 
     LoadGltf("terrain.glb", &gltfInstancedModel[terrainModelIndex]);
@@ -576,6 +588,11 @@ static void InitAssets(D3dContext& context)
     assert(gltfInstancedModel[treeModelIndex].meshes.size() < D3dContext::kMaxMeshes && "Increase D3dContext::kMaxMeshes");
     context.mNumTreeMeshes = gltfInstancedModel[treeModelIndex].meshes.size();
     InitMeshesFromGltf(gltfInstancedModel[treeModelIndex], context, context.mTreeMesh, context.kMaxMeshes);
+
+    LoadGltf("conifer.glb", &gltfInstancedModel[coniferModelIndex]);
+    assert(gltfInstancedModel[coniferModelIndex].meshes.size() < D3dContext::kMaxMeshes && "Increase D3dContext::kMaxMeshes");
+    context.mNumConiferMeshes = gltfInstancedModel[coniferModelIndex].meshes.size();
+    InitMeshesFromGltf(gltfInstancedModel[coniferModelIndex], context, context.mConiferMesh, context.kMaxMeshes);
 
     // Create the constant buffer
     CD3DX12_HEAP_PROPERTIES cbHeapProperties(D3D12_HEAP_TYPE_UPLOAD);
@@ -677,17 +694,21 @@ void D3dContext::Update(const DirectX::XMMATRIX& lookAt, float elapsedSeconds)
 
     // CB for terrain
     DirectX::XMMATRIX worldViewProj = matRotation * matLookAt * matPerspective;
+    DirectX::XMMATRIX world = matRotation;
     memcpy(mpCbvDataBegin, &worldViewProj, sizeof(worldViewProj));
+    memcpy(mpCbvDataBegin + sizeof(worldViewProj), &world, sizeof(world));
 
     // CBs for Tree instances
     for (int i = 1; i < kTreePosCount; ++i)
     {
         size_t offset = i * ALIGN_256(sizeof(worldViewProj));
-        float scaleFactor = scales[i] + 1.0;
+        float scaleFactor = scales[i] + 0.5;
         float scale = 0.0015f * scaleFactor;
-        float rotation = 0.0f;// rotations[i] * DirectX::XM_2PI;
-        worldViewProj = DirectX::XMMatrixRotationY(rotation) * DirectX::XMMatrixScaling(scale , scale, scale) * matRotation * DirectX::XMMatrixTranslationFromVector(mTreePosArray[i]) * matLookAt * matPerspective;
+        float rotation = rotations[i] * DirectX::XM_2PI;
+        world = DirectX::XMMatrixRotationY(rotation) * matRotation * DirectX::XMMatrixTranslationFromVector(mTreePosArray[i]);
+        worldViewProj = DirectX::XMMatrixRotationY(rotation) * DirectX::XMMatrixScaling(scale, scale, scale) * matRotation * DirectX::XMMatrixTranslationFromVector(mTreePosArray[i]) * matLookAt * matPerspective;
         memcpy(mpCbvDataBegin + offset, &worldViewProj, sizeof(worldViewProj));
+        memcpy(mpCbvDataBegin + offset + sizeof(worldViewProj), &world, sizeof(world));
     }
 }
 
@@ -744,11 +765,24 @@ static void PopulateCommandList(D3dContext& context)
         context.mCommandList->IASetVertexBuffers(0, 1, &context.mTreeMesh[i].mVertexBufferView);
         context.mCommandList->IASetIndexBuffer(&context.mTreeMesh[i].mIndexBufferView);
 
-        for (int iInstance = 1; iInstance < context.kTreePosCount; ++iInstance)
+        for (int iInstance = 1; iInstance < (context.kTreePosCount / 2); ++iInstance)
         {
             // Set root command buffer view for first instance
             context.mCommandList->SetGraphicsRootConstantBufferView(1, context.mConstantBuffer->GetGPUVirtualAddress() + ALIGN_256(sizeof(SceneConstantBuffer)) * iInstance);
             context.mCommandList->DrawIndexedInstanced(context.mTreeMesh[i].mNumIndices, 1, 0, 0, 0);
+        }
+    }
+
+    for (size_t i = 0; i < context.mNumConiferMeshes; ++i)
+    {
+        context.mCommandList->IASetVertexBuffers(0, 1, &context.mConiferMesh[i].mVertexBufferView);
+        context.mCommandList->IASetIndexBuffer(&context.mConiferMesh[i].mIndexBufferView);
+
+        for (int iInstance = (context.kTreePosCount / 2); iInstance < context.kTreePosCount; ++iInstance)
+        {
+            // Set root command buffer view for first instance
+            context.mCommandList->SetGraphicsRootConstantBufferView(1, context.mConstantBuffer->GetGPUVirtualAddress() + ALIGN_256(sizeof(SceneConstantBuffer)) * iInstance);
+            context.mCommandList->DrawIndexedInstanced(context.mConiferMesh[i].mNumIndices, 1, 0, 0, 0);
         }
     }
 
