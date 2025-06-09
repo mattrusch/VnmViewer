@@ -2,6 +2,7 @@
 
 #include "D3d12Context.h"
 #include <DirectXMath.h>
+#include "DDSTextureLoader12.h"
 #include "Window.h"
 #include <cassert>
 
@@ -360,7 +361,7 @@ static void LoadGltf(const char* filename, GltfModel* dstModel)
 
             uint8_t* streams[] = { gltfVertices, gltfNormals, gltfTangents, gltfTexcoords };
             const size_t attribByteSize = sizeof(float) * 3;
-            const size_t texcoordAttribByteSize = sizeof(float) * 3;
+            const size_t texcoordAttribByteSize = sizeof(float) * 2;
             size_t attribByteSizes[] = { attribByteSize, attribByteSize, attribByteSize, texcoordAttribByteSize };
 
             size_t gltfVertexStride = 0;
@@ -468,6 +469,8 @@ void InitMeshesFromGltf(const GltfModel& gltfInstancedModel, D3dContext& context
     }
 }
 
+#define DEBUG_TEXTURE 0
+
 static void InitAssets(D3dContext& context)
 {
     // Create root signature
@@ -542,13 +545,6 @@ static void InitAssets(D3dContext& context)
     D3D_CHECK(context.mDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, context.mCommandAllocator.Get(), context.mPipelineState.Get(), IID_PPV_ARGS(&context.mCommandList)));
 
     // Load geometry
-    // 
-    // TODO: Kill constexprs
-    //constexpr uint32_t numGltfModels = 2;
-    //constexpr uint32_t terrainModelIndex = 0;
-    //constexpr uint32_t treeModelIndex = 1;
-    //constexpr uint32_t coniferModelIndex = 2;
-
     enum GltfModelIds        
     {
         terrainModelIndex,
@@ -617,6 +613,7 @@ static void InitAssets(D3dContext& context)
     memcpy(context.mpCbvDataBegin, &context.mConstantBufferData, sizeof(context.mConstantBufferData));
 
     // Create texture
+#if DEBUG_TEXTURE
     CD3DX12_HEAP_PROPERTIES texHeapProperties(D3D12_HEAP_TYPE_DEFAULT);
     const auto texResourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, gTexWidth, gTexHeight, 1, 1);
     D3D_CHECK(context.mDevice->CreateCommittedResource(
@@ -628,6 +625,13 @@ static void InitAssets(D3dContext& context)
         IID_PPV_ARGS(&context.mTexture)));
 
     const UINT64 uploadBufferSize = GetRequiredIntermediateSize(context.mTexture.Get(), 0, 1);
+#else
+    std::unique_ptr<uint8_t[]> texData;
+    std::vector<D3D12_SUBRESOURCE_DATA> subresources;
+    DirectX::LoadDDSTextureFromFile(context.mDevice.Get(), L"T_WhiteOakBark_BaseColor.dds", &context.mTexture, texData, subresources);
+
+    const UINT64 uploadBufferSize = GetRequiredIntermediateSize(context.mTexture.Get(), 0, static_cast<UINT>(subresources.size()));
+#endif
 
     // Create GPU upload buffer
     CD3DX12_HEAP_PROPERTIES uploadHeapProperties(D3D12_HEAP_TYPE_UPLOAD);
@@ -642,12 +646,16 @@ static void InitAssets(D3dContext& context)
         IID_PPV_ARGS(&textureUploadHeap)));
 
     // Copy data to the upload heap and schedule a copy from the upload heap to the texture
+#if DEBUG_TEXTURE
     D3D12_SUBRESOURCE_DATA textureData = {};
     textureData.pData = &gTexData[0][0][0];
     textureData.RowPitch = gTexWidth * gTexBpp;
     textureData.SlicePitch = textureData.RowPitch * gTexHeight;
 
     UpdateSubresources(context.mCommandList.Get(), context.mTexture.Get(), textureUploadHeap.Get(), 0, 0, 1, &textureData);
+#else
+    UpdateSubresources(context.mCommandList.Get(), context.mTexture.Get(), textureUploadHeap.Get(), 0, 0, static_cast<UINT>(subresources.size()), subresources.data());
+#endif
 
     CD3DX12_RESOURCE_BARRIER resourceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
         context.mTexture.Get(),
@@ -656,6 +664,7 @@ static void InitAssets(D3dContext& context)
     context.mCommandList->ResourceBarrier(1, &resourceBarrier);
 
     // Create SRV for the texture
+#if DEBUG_TEXTURE
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc.Format = texResourceDesc.Format;
@@ -665,6 +674,12 @@ static void InitAssets(D3dContext& context)
         context.mTexture.Get(),
         &srvDesc,
         CD3DX12_CPU_DESCRIPTOR_HANDLE(context.mCbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1, context.mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)));
+#else
+    context.mDevice->CreateShaderResourceView(
+        context.mTexture.Get(), 
+        0, 
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(context.mCbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1, context.mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)));
+#endif
 
     // Close command list and execute to begin initial GPU setup
     D3D_CHECK(context.mCommandList->Close());
