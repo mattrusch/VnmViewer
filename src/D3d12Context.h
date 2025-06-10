@@ -55,7 +55,9 @@ public:
     Microsoft::WRL::ComPtr<ID3D12Resource>            mConstantBuffer;
     uint8_t*                                          mpCbvDataBegin;
     SceneConstantBuffer                               mConstantBufferData;
-    Microsoft::WRL::ComPtr<ID3D12Resource>            mTexture;
+
+    static const size_t kMaxTextures = 100;
+    Microsoft::WRL::ComPtr<ID3D12Resource>            mTexture[kMaxTextures];
 
     Microsoft::WRL::ComPtr<ID3D12Fence>               mFence;
     HANDLE                                            mFenceEvent;

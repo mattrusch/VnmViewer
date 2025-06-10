@@ -20,16 +20,10 @@ constexpr size_t ALIGN_256(size_t in)
     return (in + 0xff) & ~0xff;
 }
 
-//D3dContext gContext;
 constexpr int gX = 100;
 constexpr int gY = 100;
 constexpr int gWidth = 2560;
 constexpr int gHeight = 1600;
-
-constexpr uint32_t gTexWidth = 64;
-constexpr uint32_t gTexHeight = 64;
-constexpr uint32_t gTexBpp = 4;
-char gTexData[gTexWidth][gTexHeight][gTexBpp];
 
 // TODO: Move these
 float scales[D3dContext::kTreePosCount];
@@ -37,11 +31,9 @@ float rotations[D3dContext::kTreePosCount];
 
 
 void InitAssets(D3dContext& context);
-void InitTexture(char* dst, uint32_t width, uint32_t height, uint32_t bpp);
 
 void D3dContext::Init(HWND hwnd)
 {
-    InitTexture(&gTexData[0][0][0], gTexWidth, gTexHeight, gTexBpp);
     InitDevice(hwnd);
     InitAssets(*this);
 }
@@ -196,7 +188,7 @@ void D3dContext::InitDevice(HWND hwnd)
 
     // CBVSRV descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
-    cbvHeapDesc.NumDescriptors = 2; // TODO: Make this bigger
+    cbvHeapDesc.NumDescriptors = 100; // TODO: Un-hardcode and bounds check when creating descriptors
     cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     D3D_CHECK(mDevice->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&mCbvSrvHeap)));
@@ -469,8 +461,6 @@ void InitMeshesFromGltf(const GltfModel& gltfInstancedModel, D3dContext& context
     }
 }
 
-#define DEBUG_TEXTURE 0
-
 static void InitAssets(D3dContext& context)
 {
     // Create root signature
@@ -612,26 +602,26 @@ static void InitAssets(D3dContext& context)
     D3D_CHECK(context.mConstantBuffer->Map(0, &readRangeCb, reinterpret_cast<void**>(&context.mpCbvDataBegin)));
     memcpy(context.mpCbvDataBegin, &context.mConstantBufferData, sizeof(context.mConstantBufferData));
 
-    // Create texture
-#if DEBUG_TEXTURE
-    CD3DX12_HEAP_PROPERTIES texHeapProperties(D3D12_HEAP_TYPE_DEFAULT);
-    const auto texResourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, gTexWidth, gTexHeight, 1, 1);
-    D3D_CHECK(context.mDevice->CreateCommittedResource(
-        &texHeapProperties,
-        D3D12_HEAP_FLAG_NONE,
-        &texResourceDesc,
-        D3D12_RESOURCE_STATE_COPY_DEST,
-        nullptr,
-        IID_PPV_ARGS(&context.mTexture)));
+    // Create synchroniztion objects
+    D3D_CHECK(context.mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&context.mFence)));
+    context.mFenceValue = 1;
+    context.mFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (context.mFenceEvent == nullptr)
+    {
+        D3D_CHECK(HRESULT_FROM_WIN32(GetLastError()));
+    }
 
-    const UINT64 uploadBufferSize = GetRequiredIntermediateSize(context.mTexture.Get(), 0, 1);
-#else
-    std::unique_ptr<uint8_t[]> texData;
-    std::vector<D3D12_SUBRESOURCE_DATA> subresources;
-    DirectX::LoadDDSTextureFromFile(context.mDevice.Get(), L"T_WhiteOakBark_BaseColor.dds", &context.mTexture, texData, subresources);
+    // Load textures
+    std::vector<std::wstring> textureFilenames;
+    textureFilenames.emplace_back(L"T_Cap_02_BaseColor.dds");
+    textureFilenames.emplace_back(L"T_WhiteOakBark_BaseColor.dds");
+    textureFilenames.emplace_back(L"T_White_Oak_Leaves_Hero_1_BaseColor.dds");
+    textureFilenames.emplace_back(L"T_White_Oak_Leaves_Hero_3_BaseColor.dds");
+    textureFilenames.emplace_back(L"Bark_Color.dds");
+    textureFilenames.emplace_back(L"Conifer_Color.dds");
 
-    const UINT64 uploadBufferSize = GetRequiredIntermediateSize(context.mTexture.Get(), 0, static_cast<UINT>(subresources.size()));
-#endif
+    //const UINT64 uploadBufferSize = GetRequiredIntermediateSize(context.mTexture[i].Get(), 0, static_cast<UINT>(subresources.size()));
+    const UINT64 uploadBufferSize = 0x1000000 * 2;
 
     // Create GPU upload buffer
     CD3DX12_HEAP_PROPERTIES uploadHeapProperties(D3D12_HEAP_TYPE_UPLOAD);
@@ -645,57 +635,45 @@ static void InitAssets(D3dContext& context)
         nullptr,
         IID_PPV_ARGS(&textureUploadHeap)));
 
-    // Copy data to the upload heap and schedule a copy from the upload heap to the texture
-#if DEBUG_TEXTURE
-    D3D12_SUBRESOURCE_DATA textureData = {};
-    textureData.pData = &gTexData[0][0][0];
-    textureData.RowPitch = gTexWidth * gTexBpp;
-    textureData.SlicePitch = textureData.RowPitch * gTexHeight;
-
-    UpdateSubresources(context.mCommandList.Get(), context.mTexture.Get(), textureUploadHeap.Get(), 0, 0, 1, &textureData);
-#else
-    UpdateSubresources(context.mCommandList.Get(), context.mTexture.Get(), textureUploadHeap.Get(), 0, 0, static_cast<UINT>(subresources.size()), subresources.data());
-#endif
-
-    CD3DX12_RESOURCE_BARRIER resourceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
-        context.mTexture.Get(),
-        D3D12_RESOURCE_STATE_COPY_DEST,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    context.mCommandList->ResourceBarrier(1, &resourceBarrier);
-
-    // Create SRV for the texture
-#if DEBUG_TEXTURE
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Format = texResourceDesc.Format;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MipLevels = 1;
-    context.mDevice->CreateShaderResourceView(
-        context.mTexture.Get(),
-        &srvDesc,
-        CD3DX12_CPU_DESCRIPTOR_HANDLE(context.mCbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1, context.mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)));
-#else
-    context.mDevice->CreateShaderResourceView(
-        context.mTexture.Get(), 
-        0, 
-        CD3DX12_CPU_DESCRIPTOR_HANDLE(context.mCbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1, context.mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)));
-#endif
-
-    // Close command list and execute to begin initial GPU setup
-    D3D_CHECK(context.mCommandList->Close());
-    ID3D12CommandList* ppCommandLists[] = { context.mCommandList.Get() };
-    context.mCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
-    // Create synchroniztion objects
-    D3D_CHECK(context.mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&context.mFence)));
-    context.mFenceValue = 1;
-    context.mFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (context.mFenceEvent == nullptr)
+    for (size_t i = 0; i < textureFilenames.size(); ++i)
     {
-        D3D_CHECK(HRESULT_FROM_WIN32(GetLastError()));
-    }
+        if (i > 0)
+        {
+            // Command list allocators can only be reset when the associated command lists have finished execution on the GPU; use fences to determine GPU execution progress
+            D3D_CHECK(context.mCommandAllocator->Reset());
 
-    WaitForPreviousFrame(context);
+            // When ExecuteCommandList() is called on a particular command list, that command list can then be reset at any time and must be before re-recording
+            D3D_CHECK(context.mCommandList->Reset(context.mCommandAllocator.Get(), context.mPipelineState.Get()));
+        }
+
+        // Create texture
+        std::unique_ptr<uint8_t[]> texData;
+        std::vector<D3D12_SUBRESOURCE_DATA> subresources;
+        DirectX::LoadDDSTextureFromFile(context.mDevice.Get(), textureFilenames[i].c_str(), &context.mTexture[i], texData, subresources);
+
+        // Copy data to the upload heap and schedule a copy from the upload heap to the texture
+        UpdateSubresources(context.mCommandList.Get(), context.mTexture[i].Get(), textureUploadHeap.Get(), 0, 0, static_cast<UINT>(subresources.size()), subresources.data());
+
+        CD3DX12_RESOURCE_BARRIER resourceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            context.mTexture[i].Get(),
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        context.mCommandList->ResourceBarrier(1, &resourceBarrier);
+
+        // Create SRV for the texture
+        context.mDevice->CreateShaderResourceView(
+            context.mTexture[i].Get(),
+            0,
+            CD3DX12_CPU_DESCRIPTOR_HANDLE(context.mCbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 2 * i + 1, context.mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)));
+
+        // Close command list and execute to begin initial GPU setup
+        D3D_CHECK(context.mCommandList->Close());
+        ID3D12CommandList* ppCommandLists[] = { context.mCommandList.Get() };
+        context.mCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+
+        WaitForPreviousFrame(context);
+    }
 }
 
 void D3dContext::Update(const DirectX::XMMATRIX& lookAt, float elapsedSeconds)
@@ -765,6 +743,8 @@ static void PopulateCommandList(D3dContext& context)
     context.mCommandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
     context.mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+    UINT incrementSize = context.mDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);  // TODO: store this somewhere else
+
     for (size_t i = 0; i < context.mNumTerrainMeshes; ++i)
     {
         context.mCommandList->IASetVertexBuffers(0, 1, &context.mTerrainMesh[i].mVertexBufferView);
@@ -780,6 +760,10 @@ static void PopulateCommandList(D3dContext& context)
         context.mCommandList->IASetVertexBuffers(0, 1, &context.mTreeMesh[i].mVertexBufferView);
         context.mCommandList->IASetIndexBuffer(&context.mTreeMesh[i].mIndexBufferView);
 
+        CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(context.mCbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), i * 2, incrementSize);
+        context.mCommandList->SetGraphicsRootDescriptorTable(0, srvHandle);
+        //context.mCommandList->SetGraphicsRootDescriptorTable(0, context.mCbvSrvHeap->GetGPUDescriptorHandleForHeapStart());
+
         for (int iInstance = 1; iInstance < (context.kTreePosCount / 2); ++iInstance)
         {
             // Set root command buffer view for first instance
@@ -792,6 +776,9 @@ static void PopulateCommandList(D3dContext& context)
     {
         context.mCommandList->IASetVertexBuffers(0, 1, &context.mConiferMesh[i].mVertexBufferView);
         context.mCommandList->IASetIndexBuffer(&context.mConiferMesh[i].mIndexBufferView);
+
+        CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(context.mCbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (i + 4) * 2, incrementSize);
+        context.mCommandList->SetGraphicsRootDescriptorTable(0, srvHandle);
 
         for (int iInstance = (context.kTreePosCount / 2); iInstance < context.kTreePosCount; ++iInstance)
         {
@@ -825,20 +812,4 @@ void D3dContext::Destroy()
     WaitForPreviousFrame(*this);
 
     CloseHandle(mFenceEvent);
-}
-
-static void InitTexture(char* dst, uint32_t width, uint32_t height, uint32_t bpp)
-{
-    uint8_t range = 0x40;
-
-    for (uint32_t j = 0; j < height; ++j)
-    {
-        for (uint32_t i = 0; i < width; ++i)
-        {
-            dst[j * (width * bpp) + (i * bpp) + 0] = i % 16 < 8 && j % 8 < 4 ? 0xff : (abs(rand()) % range) + (0xff - range);
-            dst[j * (width * bpp) + (i * bpp) + 1] = i % 16 < 8 && j % 8 < 4 ? 0xff : (abs(rand()) % range) + (0xff - range);
-            dst[j * (width * bpp) + (i * bpp) + 2] = i % 16 < 8 && j % 8 < 4 ? 0xff : (abs(rand()) % range) + (0xff - range);
-            dst[j * (width * bpp) + (i * bpp) + 3] = 0xffu;
-        }
-    }
 }

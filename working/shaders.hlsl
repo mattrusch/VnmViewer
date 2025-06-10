@@ -8,6 +8,7 @@ cbuffer SceneConstantBuffer : register(b0)
 cbuffer OffsetBuffer : register(b1)
 {
     float4x4 instanceWorldViewProj;
+    float4x4 instanceWorld;
 };
 
 Texture2D gTexture : register(t0);
@@ -15,18 +16,25 @@ SamplerState gSampler : register(s0);
 
 struct PsInput
 {
-    float4 position : SV_POSITION;
-    float4 color : COLOR;
+    float4 position  : SV_POSITION;
+    float4 color     : COLOR;
     float2 texcoords : TEXCOORD;
 };
 
-PsInput VsMain(float3 position : POSITION, float3 normal : NORMAL, float3 tangent : TANGENT, float2 texcoord : TEXCOORD)
+PsInput VsMain(float3 position : POSITION, float3 normal : NORMAL, float3 tangent : TANGENT, float2 texcoords : TEXCOORD)
 {
     PsInput result;
 
     result.position = mul(instanceWorldViewProj, float4(position, 1.0));
-    result.color = float4(normal * 0.5 + 0.5, 1.0);//color;
-    result.texcoords = float2(1.0, 1.0);//texcoords;
+
+    const float4 SkyColor = float4(0.65f, 0.65f, 0.85f, 1.0f);
+ 
+    float3 worldNormal = mul(instanceWorld, float4(normal, 0.0)).xyz;
+    float4 light = dot(worldNormal, normalize(float3(1.0, 1.0, 1.0))).xxxx * 0.5 + 0.5;
+    float4 color = lerp(light, SkyColor, pow(saturate(result.position.z / result.position.w), 256.0));
+    result.color = color;
+
+    result.texcoords = texcoords;
 
     return result;
 }
@@ -34,5 +42,10 @@ PsInput VsMain(float3 position : POSITION, float3 normal : NORMAL, float3 tangen
 float4 PsMain(PsInput input) : SV_TARGET
 {
     float4 texCol = gTexture.Sample(gSampler, input.texcoords);
+    if (texCol.a  < 0.1)
+    {
+        discard;
+    }
+    
     return input.color * texCol;
 }
