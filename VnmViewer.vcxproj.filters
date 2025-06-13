@@ -36,6 +36,9 @@
     <ClCompile Include="src\DDSTextureLoader12.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\D3d12Mesh.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Application.h">
@@ -51,6 +54,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="src\DDSTextureLoader12.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\D3d12Mesh.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
