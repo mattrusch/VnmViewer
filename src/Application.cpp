@@ -1,7 +1,6 @@
 // Application.cpp
 
 #include "Application.h"
-#include "D3d12Context.h"
 
 namespace Vnm
 {
@@ -13,8 +12,6 @@ namespace Vnm
     constexpr uint32_t TiltDownBit    = 1 << 5;
     constexpr uint32_t StrafeLeftBit  = 1 << 6;
     constexpr uint32_t StrafeRightBit = 1 << 7;
-
-    D3dContext gContext; // TODO: Unglobalize
 
     static void HandleMovement(uint32_t key, Camera& camera)
     {
@@ -82,7 +79,7 @@ namespace Vnm
         winDesc.mParentApplication = this;
         mWindow.Create(instance, cmdShow, winDesc);
 
-        gContext.Init(mWindow.GetHandle());
+        mContext.Init(mWindow.GetHandle());
         mCamera.SetPosition(DirectX::XMVectorSet(0.0f, 0.0f, -10.0f, 0.0f));
     }
 
@@ -96,8 +93,8 @@ namespace Vnm
         lastTime = GetTickCount();
         float elapsedSeconds = static_cast<float>(elapsedTime) * 0.001f;
 
-        gContext.Update(mCamera.CalcLookAt(), elapsedSeconds);
-        gContext.Render();
+        mContext.Update(mCamera.CalcLookAt(), elapsedSeconds);
+        mContext.Render();
     }
 
     void Application::Shutdown()

@@ -4,6 +4,7 @@
 
 #include "Window.h"
 #include "Camera.h"
+#include "D3d12Context.h"
 
 namespace Vnm
 {
@@ -44,6 +45,7 @@ namespace Vnm
 
     private:
         Window     mWindow;
+        D3dContext mContext;
         Camera     mCamera;
         MouseState mMouseState;
         uint32_t   mMoveState = 0;

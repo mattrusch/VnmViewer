@@ -11,6 +11,7 @@
 #include <DirectXMath.h>
 #include <wrl.h>
 #include "d3dx12.h"
+#include "D3d12Mesh.h"
 
 // TODO: Move this out of context
 class SceneConstantBuffer
@@ -19,17 +20,10 @@ public:
     DirectX::XMMATRIX mWorldViewProj;
 };
 
-// TODO: Move this out of context
-class D3dMesh
+inline void D3D_CHECK(HRESULT hr)
 {
-public:
-    Microsoft::WRL::ComPtr<ID3D12Resource>            mVertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW                          mVertexBufferView;
-
-    Microsoft::WRL::ComPtr<ID3D12Resource>            mIndexBuffer;
-    D3D12_INDEX_BUFFER_VIEW                           mIndexBufferView;
-    size_t                                            mNumIndices = 0;
-};
+    assert(SUCCEEDED(hr));
+}
 
 class D3dContext
 {
